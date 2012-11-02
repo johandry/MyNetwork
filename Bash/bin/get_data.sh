@@ -3,17 +3,27 @@
 #Title       : get_data.sh
 #Date Created: Wed Oct 31 18:02:31 CST 2012
 #Last Edit   : Wed Oct 31 18:02:31 CST 2012
-#Author      : "Johandry Amador" < Johandry.Amador@softtek.com >
+#Author      : "Johandry Amador" < johandry@me.com >
 #Version     : 1.00
 #Description : Identify what local applications are in use
 #Usage       : 
 
-#Netstat command options
-NETSTAT='netstat -natp'
-#NETSTAT='netstat -nap'
+#Default netstat command options
+DEFAULT_NETSTAT='netstat -natp'
 
 #Home directory
-HOME=$(pwd)
+HOME=$PWD
+
+#Description: Get netstat options base on OS used.
+#Parameters : 
+function set_netstat {
+	os=$(uname)
+	[ "$os" = "Darwin" ] && NETSTAT='netstat -nat'  && return #Mac OS X
+	[ "$os" = "Linux"  ] && NETSTAT='netstat -natp' && return #Linux
+	[ "$os" = "CygWin" ] && NETSTAT='netstat'       && return #CygWin on Windows
+	echo "Unknown OS ($os). Review command netstat and include it in the function set_netstat" > &2
+	NETSTAT=$DEFAULT_NETSTAT
+}
 
 #Description: Get formated output from Netstat for Listen or Establish connections
 #Parameters : $1 = 'LISTEN' or 'ESTABLISHED' or 'LISTENING' or 'CONNECTED'
@@ -55,6 +65,11 @@ function parse_data {
 		[ -z "$server_id" ] && sqlite3 $HOME/data/migration.db "insert into Servers (ip) values ('$local_ip');"
 	done < $data_file
 }
+
+## MAIN 
+#Get the parameters of netstat according to the OS
+set_netstat
+
 
 get_netstat 'LISTEN' > $HOME/data/listen.dat
 parse_data 'listen.dat'
