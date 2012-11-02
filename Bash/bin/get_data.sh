@@ -1,4 +1,4 @@
-#!/bin/bash -
+#!/bin/bash
 
 #Title       : get_data.sh
 #Date Created: Wed Oct 31 18:02:31 CST 2012
@@ -8,35 +8,60 @@
 #Description : Identify what local applications are in use
 #Usage       : 
 
-
-
+#The script home directory. Change it if you change the script to other directory.
+home="/home/jamador/Development/MyNetwork/Bash"
 #Default netstat command options
 DEFAULT_NETSTAT='netstat -natp'
 
 #Save from where the script was executed
 initial_pwd="$PWD"
-#The script home directory
-home=""
 
-#Description: Print errors and warnings
-#Parameters :
-function 
+#Description: Print messages, errors and warnings
+#Parameters : <type> <message>
+#             <type>: Could be: MSG, ERR, WAR. Default is MSG
+function print {
+	case "$1" in
+		MSG) 
+			echo "$2"
+			;;
+		WAR) 
+			echo "$2" 1>&2;
+			;;
+		ERR) 
+			echo "$2" 1>&2;
+			exit;
+			;;
+		*) 
+			echo "$1"
+			;;
+	esac
+}
 
 #Description: Get netstat options base on OS used.
 #Parameters : 
 function set_netstat {
-	os=$(uname)
-	[ "$os" = "Darwin" ] && NETSTAT='netstat -nat'  && return #Mac OS X
-	[ "$os" = "Linux"  ] && NETSTAT='netstat -natp' && return #Linux
-	[ "$os" = "CygWin" ] && NETSTAT='netstat'       && return #CygWin on Windows
-	echo "Unknown OS ($os). Review command netstat and include it in the function set_netstat" 1>&2
+	ostype=$(uname)
+	[ "$ostype" = "Darwin" ] && NETSTAT='netstat -nat'  && return #Mac OS X
+	[ "$ostype" = "Linux"  ] && NETSTAT='netstat -natp' && return #Linux
+	[ "$ostype" = "CygWin" ] && NETSTAT='netstat'       && return #CygWin on Windows
+	print WAR "Unknown OS ($ostype). Review command netstat and include it in the function set_netstat"
 	NETSTAT=$DEFAULT_NETSTAT
+}
+
+#Description: Validations and Initializations before start the execution
+#Parameters :
+function init {
+	myname=$(basename $0)
+	#Validate the home directory
+	[ -d "$home" -a -e "$home/bin/$myname" ] || print ERR "Home directory is not correct, update the variable \$home".
+	
+	#Get the parameters of netstat according to the OS type
+	set_netstat
 }
 
 #Description: Get formated output from Netstat for Listen or Establish connections
 #Parameters : $1 = 'LISTEN' or 'ESTABLISHED' or 'LISTENING' or 'CONNECTED'
 function get_netstat {
-	#echo "[$(date)]"
 	if [ "$1" = "LISTEN" ] || [ "$1" = "ESTABLISHED" ]
 	then
 		sudo $NETSTAT | grep "$1" | awk '{print $4","$5","$7}'
@@ -75,8 +100,7 @@ function parse_data {
 }
 
 ## MAIN 
-#Get the parameters of netstat according to the OS
-set_netstat
+init
 
 
 get_netstat 'LISTEN' > $home/data/listen.dat
