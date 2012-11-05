@@ -16,23 +16,24 @@ DEFAULT_NETSTAT='netstat -natp'
 #Save from where the script was executed
 initial_pwd="$PWD"
 
-#Description: Print messages, errors and warnings
-#Parameters : <type> <message>
-#             <type>: Could be: MSG, ERR, WAR. Default is MSG
-function print {
-	case "$1" in
-		MSG) 
-			echo "$2"
+#Description: Print log messages, errors and warnings
+#Parameters : [<type>] <message>
+#             <type>: Could be: msg, error, warn. Default is msg
+function log {
+	log_type="$1" && shift
+	case "${log_type}" in
+		(msg) 
+			printf "%b" "$*\n"
 			;;
-		WAR) 
-			echo "$2" 1>&2;
+		(warn) 
+			printf "%b" "WARNING: $*\n" >&2
 			;;
-		ERR) 
-			echo "$2" 1>&2;
-			exit;
+		(error) 
+			printf "%b" "ERROR: $*\n" >&2
+			exit 1;
 			;;
-		*) 
-			echo "$1"
+		(*) 
+			printf "%b" "${log_type} $*\n"
 			;;
 	esac
 }
@@ -41,10 +42,10 @@ function print {
 #Parameters : 
 function set_netstat {
 	ostype=$(uname)
-	[ "$ostype" = "Darwin" ] && NETSTAT='netstat -nat'  && return #Mac OS X
-	[ "$ostype" = "Linux"  ] && NETSTAT='netstat -natp' && return #Linux
-	[ "$ostype" = "CygWin" ] && NETSTAT='netstat'       && return #CygWin on Windows
-	print WAR "Unknown OS ($ostype). Review command netstat and include it in the function set_netstat"
+	[ "${ostype}" = "Darwin" ] && NETSTAT='netstat -nat'  && return #Mac OS X
+	[ "${ostype}" = "Linux"  ] && NETSTAT='netstat -natp' && return #Linux
+	[ "${ostype}" = "CygWin" ] && NETSTAT='netstat'       && return #CygWin on Windows (TODO: Validate)
+	log warn "Unknown OS (${ostype}). Review command netstat and include it in the function set_netstat"
 	NETSTAT=$DEFAULT_NETSTAT
 }
 
@@ -52,58 +53,70 @@ function set_netstat {
 #Parameters :
 function init {
 	myname=$(basename $0)
+	bin_name="${home}/bin/$myname"
+	db_name="${home}/data/${myname}.db"
 	#Validate the home directory
-	[ -d "$home" -a -e "$home/bin/$myname" ] || print ERR "Home directory is not correct, update the variable \$home".
+	[ -d "${home}" -a -e "${bin_name}" ] || log error "Home directory is not correct, update the variable \${home}".
 	
 	#Get the parameters of netstat according to the OS type
 	set_netstat
+	
+	#Create DB if do not exists
+	if [ ! -e "${db_name}" ]
+	then
+		sqlite3 "${db_name}"
+	fi
 }
 
 #Description: Get formated output from Netstat for Listen or Establish connections
 #Parameters : $1 = 'LISTEN' or 'ESTABLISHED' or 'LISTENING' or 'CONNECTED'
 function get_netstat {
-	if [ "$1" = "LISTEN" ] || [ "$1" = "ESTABLISHED" ]
+	cmd="$1" && shift
+	if [ "${cmd}" = "LISTEN" ] || [ "${cmd}" = "ESTABLISHED" ]
 	then
-		sudo $NETSTAT | grep "$1" | awk '{print $4","$5","$7}'
+		sudo $NETSTAT | grep "${cmd}" | awk '{print $4","$5","$7}'
 	else
-		sudo $NETSTAT | grep "$1" | awk '{print "$7}'
+		sudo $NETSTAT | grep "${cmd}" | awk '{print $7}'
 	fi
 }
 
 #Description: Parse information obtained from netstat and save it in a DB
 #Parameters : $1 = 'listen.dat' or 'estabished.dat'
 function parse_data {
-	data_file=$home/data/$1
+	data_file="${home}/data/$1"
 	OIFS=$IFS
 	while read line
 	do
-		foreing=$(echo $line | cut -d, -f1)
-		foreing_ip=$(echo $foreing | cut -d: -f1)
-		foreing_port=$(echo $foreing | cut -d: -f2)
-		local=$(echo $line | cut -d, -f2)
-		local_ip=$(echo $local | cut -d: -f1)
-		local_port=$(echo $local | cut -d: -f2)
-		app=$(echo $line | cut -d, -f3)
-		app_pid=$(echo $app | cut -d/ -f1)
-		app_name=$(echo $app | cut -d/ -f2)
+		foreing=$(echo ${line} | cut -d, -f1)
+		foreing_ip=$(echo ${foreing} | cut -d: -f1)
+		foreing_port=$(echo ${foreing} | cut -d: -f2)
+		local=$(echo ${line} | cut -d, -f2)
+		local_ip=$(echo ${local} | cut -d: -f1)
+		local_port=$(echo ${local} | cut -d: -f2)
+		app=$(echo ${line} | cut -d, -f3)
+		app_pid=$(echo ${app} | cut -d/ -f1)
+		app_name=$(echo ${app} | cut -d/ -f2)
 		
 		#Add Applications if do not exists
-		app_id=$(sqlite3 $home/data/migration.db "select id from Apps where name='$app_name';")
-		[ -z "$app_id" ] && sqlite3 $home/data/migration.db "insert into Apps (name) values ('$app_name');"
+		app_id=$(sqlite3 ${home}/data/migration.db "select id from Apps where name='${app_name}';")
+		[ -z "${app_id}" ] && sqlite3 "${home}/data/migration.db" "insert into Apps (name) values ('${app_name}');"
 		
 		#Add Server if do not exists
-		server_id=$(sqlite3 $home/data/migration.db "select id from Servers where ip='$foreing_ip';")
-		[ -z "$server_id" ] && sqlite3 $home/data/migration.db "insert into Servers (ip) values ('$foreing_ip');"
-		server_id=$(sqlite3 $home/data/migration.db "select id from Servers where ip='$local_ip';")
-		[ -z "$server_id" ] && sqlite3 $home/data/migration.db "insert into Servers (ip) values ('$local_ip');"
-	done < $data_file
+		server_id=$(sqlite3 "${home}/data/migration.db" "select id from Servers where ip='${foreing}_ip';")
+		[ -z "$server_id" -a -z "${foreing_ip}" ] && sqlite3 "${home}/data/migration.db" "insert into Servers (ip) values ('${foreing_ip}');"
+		server_id=$(sqlite3 "${home}/data/migration.db" "select id from Servers where ip='${local}_ip';")
+		[ -z "$server_id" -a -z "${local_ip}" ] && sqlite3 "${home}/data/migration.db" "insert into Servers (ip) values ('${local_ip}');"
+		
+		
+	done < "${data_file}"
+	IFS=$OIFS
 }
 
 ## MAIN 
 init
 
-
-get_netstat 'LISTEN' > $home/data/listen.dat
+get_netstat 'LISTEN' > "${home}/data/listen.dat"
 parse_data 'listen.dat'
 
-get_netstat 'ESTABLISHED' > $home/data/estabished.dat
+get_netstat 'ESTABLISHED' > "${home}/data/estabished.dat"
+parse_data 'estabished.dat'
